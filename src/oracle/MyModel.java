@@ -19,7 +19,11 @@ public class MyModel extends AbstractTableModel{
 
 	//row, col에 위치한 셀을 편집 가능하게 한다.
 	public boolean isCellEditable(int row, int col) {
-		return true;
+		if(col==0){
+			return false;
+		}else{
+			return true;
+		}
 	}
 	
 	//각셀의 변경값을 반영하는 메서드 오버라이드

@@ -3,6 +3,9 @@ package oracle;
 import java.awt.BorderLayout;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseListener;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.BufferedReader;
@@ -62,6 +65,7 @@ public class LoadMain extends JFrame implements ActionListener, TableModelListen
 	
 	//엑셀 파일에 의해 생성된 쿼리문을 쓰레드가 사용할 수 있는 상태로 저장해놓자!
 	StringBuffer sql = new StringBuffer();
+	String seq;
 
 	public LoadMain() {
 		p_north = new JPanel();
@@ -90,6 +94,15 @@ public class LoadMain extends JFrame implements ActionListener, TableModelListen
 		bt_load.addActionListener(this);
 		bt_excel.addActionListener(this);
 		bt_del.addActionListener(this);		
+		
+		//테이블에 마우스리스너 붙이기(내부익명으로) 리스너는 너무 빡세서 어댑터쓰기
+		table.addMouseListener(new MouseAdapter() {
+			public void mouseClicked(MouseEvent e) {
+				JTable t=(JTable)e.getSource();
+				int row = t.getSelectedRow();
+				seq = (String)t.getValueAt(row, 0);// seq는 첫번째니깐!
+			}
+		});
 		
 		//윈도우와 리스너 연결
 		//윈도우리스너는 오버라이딩이 넘 많고, 윈도우어댑터 extends하려했더니 이미 JFrame하고 있어서 내부익명으로
@@ -146,8 +159,6 @@ public class LoadMain extends JFrame implements ActionListener, TableModelListen
 				} catch (FileNotFoundException e) {
 					e.printStackTrace();
 				} 		
-				
-			
 		}
 	}
 	
@@ -361,14 +372,36 @@ public class LoadMain extends JFrame implements ActionListener, TableModelListen
 		}		
 	}
 	
-	
-	
+
 	//선택한 레코드 삭제
 	public void delete(){
-		
+		int answer=JOptionPane.showConfirmDialog(LoadMain.this, seq+" 레코드 삭제할래요?");
+		if(answer==JOptionPane.OK_OPTION){
+			String sql="delete from hospital where seq="+seq;
+			PreparedStatement pstmt=null;
+			try {
+				pstmt=con.prepareStatement(sql);
+				int result=pstmt.executeUpdate();
+				if(result!=0){
+					JOptionPane.showMessageDialog(this, "삭제완료");
+					table.updateUI();//테이블 갱신
+				}
+			} catch (SQLException e) {
+				e.printStackTrace();
+			} finally {
+				if(pstmt!=null){
+					try {
+						pstmt.close();
+					} catch (SQLException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+				}
+			}
+		}
 	}
 	
-	@Override
+
 	public void actionPerformed(ActionEvent e) {
 		Object obj=e.getSource();
 		if(obj==bt_open){
@@ -392,23 +425,34 @@ public class LoadMain extends JFrame implements ActionListener, TableModelListen
 		
 		int col=e.getColumn();
 		int row=e.getFirstRow();
-		TableModel model = (TableModel)e.getSource();
-	    String columnName = model.getColumnName(col);
-	    Object seq = model.getValueAt(row, 0);
-	    Object data = model.getValueAt(row, col);
-	    
-		System.out.println("당신이 바꾸고 있는 줄은 "+row+"칸은 "+col);
-		System.out.println("update hospital set "+columnName+"='"+data+"' where seq='"+seq+"'");
 		
-		StringBuffer sb=new StringBuffer();
-		sb.append("update hospital set "+columnName+"='"+data+"' where seq='"+seq+"'");
+		String column = (String)columnName.elementAt(col);
+		String value=(String)table.getValueAt(row, col);
+		
+		String seq=(String)table.getValueAt(row, 0);
+		
+		String sql="update hospital set "+column+"='"+value+"' where seq="+seq;
+		System.out.println(sql);		
+		
+		//TableModel model = (TableModel)e.getSource();
+	   // String columnName = model.getColumnName(col);
+	   // Object seq = model.getValueAt(row, 0);
+	    //Object data = model.getValueAt(row, col);
+	    
+//		System.out.println("당신이 바꾸고 있는 줄은 "+row+"칸은 "+col);
+//		System.out.println("update hospital set "+columnName+"='"+data+"' where seq='"+seq+"'");
+//		
+//		StringBuffer sb=new StringBuffer();
+//		sb.append("update hospital set "+columnName+"='"+data+"' where seq='"+seq+"'");
 		PreparedStatement pstmt=null;
 		
 		try {
-			pstmt=con.prepareStatement(sb.toString());
-			pstmt.executeUpdate();
+			pstmt=con.prepareStatement(sql);
+			int result =pstmt.executeUpdate();
+			if(result!=0){
+				JOptionPane.showMessageDialog(this, "변경됬음요");
+			}
 		} catch (SQLException e1) {
-
 			e1.printStackTrace();
 		} finally {
 			if(pstmt!=null){
