@@ -36,9 +36,11 @@ import org.apache.poi.hssf.usermodel.HSSFSheet;
 import org.apache.poi.hssf.usermodel.HSSFWorkbook;
 import org.apache.poi.ss.usermodel.DataFormatter;
 
+import util.file.FileUtil;
 
 
-public class LoadMain extends JFrame implements ActionListener, TableModelListener{
+
+public class LoadMain extends JFrame implements ActionListener, TableModelListener, Runnable{
 	JPanel p_north;
 	JTextField t_path;
 	JButton bt_open, bt_load, bt_excel, bt_del;
@@ -54,13 +56,19 @@ public class LoadMain extends JFrame implements ActionListener, TableModelListen
 	
 	Vector list;
 	Vector columnName;
+	
+	Thread thread; //엑셀 등록시 사용될 쓰레드 쓰는 이유? 데이터양이 너무 많거나, 네트워크 상태가 좋지않을 경우, insert가 while문 속도를 못따라갈 수 있기에 안정성을 위해서
+	//일부러 시간 지연을 일으킨다.
+	
+	//엑셀 파일에 의해 생성된 쿼리문을 쓰레드가 사용할 수 있는 상태로 저장해놓자!
+	StringBuffer sql = new StringBuffer();
 
 	public LoadMain() {
 		p_north = new JPanel();
 		t_path = new JTextField(20);
-		bt_open = new JButton("파일열기");
+		bt_open = new JButton("csv파일열기");
 		bt_load = new JButton("로드하기");
-		bt_excel = new JButton("엑셀로드");
+		bt_excel = new JButton("excel로드");
 		bt_del = new JButton("삭제하기");
 		
 		table = new JTable();
@@ -114,17 +122,32 @@ public class LoadMain extends JFrame implements ActionListener, TableModelListen
 		
 		//열기를 누르면.. 목적파일의 스트림을 생성하자!
 		if(result==JFileChooser.APPROVE_OPTION){
+			
+						
 			//유저가 선택한 파일
 			File file = chooser.getSelectedFile();
-			t_path.setText(file.getAbsolutePath());
-	
-			try {
-				//스트림만 만들고 말자!
-				reader = new FileReader(file);
-				buffr = new BufferedReader(reader);
-			} catch (FileNotFoundException e) {
-				e.printStackTrace();
-			} 			
+			
+			//csv파일 아니면 뱉어내기!
+			String name = file.getName();
+			
+			String ext=FileUtil.getExt(name);
+			
+			if(!ext.equals("csv")){
+				JOptionPane.showMessageDialog(this, "csv 파일만 선택해주세요");
+				return;
+			}
+			
+				t_path.setText(file.getAbsolutePath());
+				
+				try {
+					//스트림만 만들고 말자!
+					reader = new FileReader(file);
+					buffr = new BufferedReader(reader);
+				} catch (FileNotFoundException e) {
+					e.printStackTrace();
+				} 		
+				
+			
 		}
 	}
 	
@@ -198,12 +221,14 @@ public class LoadMain extends JFrame implements ActionListener, TableModelListen
 	 * */
 	
 	public void loadExcel(){
+		FileInputStream fis=null;
+		StringBuffer cols=new StringBuffer();
+		StringBuffer data=new StringBuffer();
+		
 		//POI HSSFWorkbook 실행하기 위해서 빨대를 꼽았다.
 		int option=chooser.showOpenDialog(this);
 		if(option==JFileChooser.APPROVE_OPTION){
 			File file =chooser.getSelectedFile();
-			FileInputStream fis=null;
-			PreparedStatement pstmt=null;
 			try {
 				fis=new FileInputStream(file);
 				
@@ -213,40 +238,73 @@ public class LoadMain extends JFrame implements ActionListener, TableModelListen
 				sheet=book.getSheet("sheet1");
 				DataFormatter df=new DataFormatter();
 				String[] values=null;
-				
+								
 				int total = sheet.getLastRowNum();
+				
+				/*-------------------------------------------
+				 첫번째 row는 데이터가 아닌 컬럼 정보이므로,
+				 이 정보들을 추출하여 insert into table(***)에 넣자
+				 -------------------------------------------*/
+				
+				HSSFRow firstRow=sheet.getRow(sheet.getFirstRowNum());
+				//row를 얻었으니 컬럼을 분석한다
+				//int last = firstRow.getLastCellNum();//마지막 cell 번호
+				for(int i=0; i<firstRow.getLastCellNum();i++){
+					HSSFCell nameCell=firstRow.getCell(i);
+					if(i<firstRow.getLastCellNum()-1){
+						cols.append(nameCell.getStringCellValue()+",");
+						//System.out.print(nameCell.getStringCellValue()+",");
+					}else{
+						cols.append(nameCell.getStringCellValue());
+						//System.out.print(nameCell.getStringCellValue());
+					}
+				}				
+				
+				//데이터 추출
 				for(int a=1; a<=total;a++){
 					HSSFRow row=sheet.getRow(a);
-					int cols=row.getLastCellNum();
-					values = new String[cols];
-					for(int i=0;i<cols;i++){
+					int col=row.getLastCellNum();
+					values = new String[col];
+					
+					data.delete(0, data.length());
+					
+					for(int i=0;i<col;i++){
 						HSSFCell cell=row.getCell(i);
 						String value=df.formatCellValue(cell);
-						values[i]=value;
+						
+						if(cell.getCellType()==HSSFCell.CELL_TYPE_STRING){
+							value="'"+value+"'";
+						}
+						
+						if(i<col-1){
+							data.append(value+",");
+						}else{
+							data.append(value);
+						}
 					}
-					StringBuffer sb= new StringBuffer();
-					sb.append("insert into hospital(seq, name, addr, regdate, status, dimension, type)");
-					sb.append(" values ("+values[0]+", '"+values[1]+"', '"+values[2]+"', '"+values[3]+"', '"+values[4]+"', "+values[5]+", '"+values[6]+"')");
-					pstmt=con.prepareStatement(sb.toString());
-					int result=pstmt.executeUpdate();
-					sb.delete(0, sb.length());
-				}JOptionPane.showMessageDialog(this, "엑셀도 성공");		
-				
-			} catch (FileNotFoundException e) {
-				e.printStackTrace();
-			} catch (IOException e) {
-				e.printStackTrace();
-			} catch (SQLException e) {
-				e.printStackTrace();
-			} finally {
-				if(pstmt!=null){
-					try {
-						pstmt.close();
-					} catch (SQLException e) {
-						e.printStackTrace();
-					}
+					sql.append("insert into hospital("+cols.toString()+")");
+					sql.append(" values ("+data.toString()+");");
+					
 				}
-			}
+				//모든게 끝났으니, 편안하게 쓰레드에게 일 시키자!
+				thread = new Thread(this);//this를 붙임으로써, Runnable인 클래스의 run을 수행한다.
+				thread.start();
+				
+				} catch (FileNotFoundException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				} catch (IOException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				} finally {
+					if(fis!=null){
+						try {
+							fis.close();
+						} catch (IOException e) {
+							e.printStackTrace();
+						}
+					}					
+				}	
 		}
 	}
 	
@@ -282,10 +340,7 @@ public class LoadMain extends JFrame implements ActionListener, TableModelListen
 				vec.add(rs.getString("dimension"));
 				vec.add(rs.getString("type"));
 				list.add(vec);
-			}
-			
-			
-			
+			}			
 			
 		} catch (SQLException e) {
 			e.printStackTrace();
@@ -367,10 +422,42 @@ public class LoadMain extends JFrame implements ActionListener, TableModelListen
 		}		
 	}
 	
+	
+	public void run() {
+		String[] str = sql.toString().split(";");
+		PreparedStatement pstmt=null;
+		
+		for(int i=0;i<str.length;i++){
+			System.out.println(str[i]);
+			
+			try {
+				Thread.sleep(200);
+			} catch (InterruptedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+			try {
+				pstmt=con.prepareStatement(str[i]);
+				int result=pstmt.executeUpdate();
+			} catch (SQLException e) {
+				e.printStackTrace();
+			} 
+		}
+		//기존에 사용했던 StringBuffer비우기
+		sql.delete(0, sql.length());
+		
+		if(pstmt!=null){
+			try {
+				pstmt.close();
+			} catch (SQLException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}JOptionPane.showMessageDialog(this, "엑셀도 성공");
+	}
 
 	public static void main(String[] args) {
 		new LoadMain();
-
 	}
 
 }
